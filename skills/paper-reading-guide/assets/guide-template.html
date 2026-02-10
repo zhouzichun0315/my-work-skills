@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__TITLE_RAW__ — 交互式阅读指南</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,"Noto Sans SC","PingFang SC",sans-serif;background:#f1f5f9;height:100vh;overflow:hidden;display:flex;}
+
+/* LEFT: Paper viewer */
+.paper-pane{width:42%;height:100vh;background:#525659;overflow-y:auto;position:relative;flex-shrink:0;}
+.paper-pane::-webkit-scrollbar{width:8px;}
+.paper-pane::-webkit-scrollbar-thumb{background:#888;border-radius:4px;}
+.paper-hint{color:#94a3b8;text-align:center;padding:40px 20px;font-size:14px;line-height:1.8;}
+.page-wrapper{position:relative;margin:8px auto;width:95%;}
+.page-wrapper img{width:100%;display:block;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.3);}
+.page-label{position:absolute;top:8px;right:12px;background:rgba(0,0,0,0.5);color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;z-index:2;}
+.highlight-overlay{position:absolute;left:0;width:100%;border:3px solid;border-radius:6px;pointer-events:none;z-index:1;transition:all 0.3s;}
+
+/* RIGHT: Guide */
+.guide-pane{flex:1;height:100vh;overflow-y:auto;padding:20px 24px;background:linear-gradient(135deg,#f8fafc 0%,#f0f4ff 50%,#faf5ff 100%);}
+.guide-pane::-webkit-scrollbar{width:8px;}
+.guide-pane::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px;}
+
+.header{text-align:center;margin-bottom:16px;}
+.header h1{font-size:22px;font-weight:800;color:#1e293b;}
+.header p{color:#94a3b8;font-size:12px;margin-top:4px;}
+
+.map-box{background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:12px;margin-bottom:16px;position:relative;height:360px;box-shadow:0 1px 3px rgba(0,0,0,0.04);}
+.map-svg{position:absolute;inset:0;width:100%;height:100%;z-index:0;}
+.node-btn{position:absolute;transform:translate(-50%,-50%);z-index:1;background:none;border:none;cursor:pointer;transition:all 0.2s;}
+.node-chip{border-radius:14px;padding:7px 14px;box-shadow:0 1px 4px rgba(0,0,0,0.08);display:flex;align-items:center;gap:6px;border:2px solid;transition:all 0.2s;font-size:12px;font-weight:600;white-space:nowrap;}
+.node-chip .emoji{font-size:14px;}
+.node-btn:hover .node-chip{transform:scale(1.05);}
+
+.detail-panel{border-radius:14px;border:1px solid;box-shadow:0 4px 20px rgba(0,0,0,0.06);overflow:hidden;margin-bottom:16px;background:#fafbfd;animation:slideIn 0.25s ease-out;}
+@keyframes slideIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+.detail-header{padding:16px 20px;display:flex;justify-content:space-between;align-items:center;}
+.detail-header .info h2{font-size:18px;font-weight:700;display:flex;align-items:center;gap:6px;}
+.detail-header .info .section{font-size:11px;color:#94a3b8;margin-top:2px;}
+.detail-header .close-btn{font-size:24px;color:#94a3b8;background:none;border:none;cursor:pointer;padding:0 4px;line-height:1;}
+.detail-body{padding:0 20px 20px;}
+.key-question{border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+.key-question .label{font-size:12px;font-weight:600;}
+.key-question .text{font-size:13px;color:#334155;margin-top:3px;line-height:1.6;}
+.content-area{color:#475569;}
+.content-area h3{font-size:14px;font-weight:700;color:#1e293b;margin:14px 0 4px;}
+.content-area p{font-size:13px;line-height:1.7;margin-bottom:4px;}
+.content-area .bullet{display:flex;gap:6px;font-size:13px;margin-left:6px;margin-bottom:3px;line-height:1.6;}
+.content-area .bullet .dot{color:#94a3b8;margin-top:1px;flex-shrink:0;}
+.content-area .step-label{font-size:13px;font-weight:600;color:#1e293b;margin-top:8px;}
+.content-area strong{color:#1e293b;font-weight:600;}
+.think-box{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;margin-top:16px;}
+.think-box .title{font-size:12px;font-weight:600;color:#b45309;margin-bottom:8px;}
+.qa-question{cursor:pointer;display:flex;gap:6px;align-items:flex-start;padding:6px 0;border-radius:6px;transition:background 0.15s;}
+.qa-question:hover{background:rgba(245,158,11,0.08);}
+.qa-question .arrow{color:#b45309;flex-shrink:0;font-size:11px;margin-top:3px;width:14px;}
+.qa-question .qtext{color:#92400e;font-size:13px;line-height:1.6;}
+.qa-detail{margin:0 0 10px 18px;animation:slideIn 0.2s ease-out;}
+.qa-block{padding:10px 12px;border-radius:0 8px 8px 0;margin-bottom:8px;border-left:3px solid;}
+.qa-block .block-label{font-size:10px;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;}
+.qa-block .block-text{font-size:12px;line-height:1.7;margin:0;}
+.paper-ref{margin-top:10px;font-size:11px;color:#94a3b8;font-style:italic;}
+.empty-hint{text-align:center;padding:24px;color:#94a3b8;font-size:13px;}
+
+/* Divider handle */
+.divider{width:5px;background:#cbd5e1;cursor:col-resize;flex-shrink:0;transition:background 0.2s;}
+.divider:hover{background:#94a3b8;}
+</style>
+</head>
+<body>
+<div class="paper-pane" id="paperPane">
+  <div class="paper-hint" id="paperHint">
+    ← 选择右侧概念节点后<br>这里会跳转到对应的论文原文<br>并高亮标出相关章节
+  </div>
+</div>
+<div class="divider" id="divider"></div>
+<div class="guide-pane" id="guidePane">
+  <div class="header">
+    <h1 id="titleEl"></h1>
+    <p>点击概念节点 → 左侧跳转原文并高亮 · 右侧展开讲解</p>
+  </div>
+  <div class="map-box" id="mapBox">
+    <svg class="map-svg" id="mapSvg"></svg>
+  </div>
+  <div id="detailContainer"></div>
+  <div class="empty-hint" id="emptyHint">点击上方概念节点，开始探索</div>
+</div>
+
+<script>
+const PAPER_TITLE = __PAPER_TITLE__;
+const TOTAL_PAGES = __TOTAL_PAGES__;
+const PAGES_DIR = "__PAGES_DIR__";
+const nodes = __NODES_JSON__;
+const connections = __CONNECTIONS_JSON__;
+let selectedId = null;
+const expandedQs = new Set();
+let pagesLoaded = false;
+
+document.getElementById('titleEl').textContent = PAPER_TITLE;
+document.title = PAPER_TITLE + ' — 交互式阅读指南';
+
+function getNode(id){return nodes.find(n=>n.id===id);}
+
+function loadPages(){
+  if(pagesLoaded)return;
+  pagesLoaded=true;
+  const pane=document.getElementById('paperPane');
+  pane.innerHTML='';
+  for(let i=1;i<=TOTAL_PAGES;i++){
+    const w=document.createElement('div');
+    w.className='page-wrapper';
+    w.id='page-'+i;
+    w.innerHTML='<div class="page-label">Page '+i+'</div><img src="'+PAGES_DIR+'/page_'+i+'.png" alt="Page '+i+'" loading="lazy">';
+    pane.appendChild(w);
+  }
+}
+
+function highlightPages(node){
+  document.querySelectorAll('.highlight-overlay').forEach(e=>e.remove());
+  if(!node||!node.highlights)return;
+  node.highlights.forEach(h=>{
+    const pw=document.getElementById('page-'+h.page);
+    if(!pw)return;
+    const ov=document.createElement('div');
+    ov.className='highlight-overlay';
+    ov.style.top=h.top+'%';
+    ov.style.height=h.height+'%';
+    ov.style.borderColor=node.color;
+    ov.style.background=node.color+'15';
+    ov.style.boxShadow='0 0 20px '+node.color+'30';
+    pw.appendChild(ov);
+  });
+  setTimeout(()=>{
+    const target=document.getElementById('page-'+node.scrollTo);
+    if(target){target.scrollIntoView({behavior:'smooth',block:'start'});}
+  },100);
+}
+
+function renderMap(){
+  const svg=document.getElementById('mapSvg');
+  const box=document.getElementById('mapBox');
+  let h='';
+  connections.forEach(c=>{
+    const f=getNode(c.from),t=getNode(c.to);
+    if(!f||!t)return;
+    h+='<line x1="'+f.x+'%" y1="'+(f.y+3)+'%" x2="'+t.x+'%" y2="'+t.y+'%" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="5 3" opacity="0.5"/>';
+  });
+  svg.innerHTML=h;
+  box.querySelectorAll('.node-btn').forEach(e=>e.remove());
+  nodes.forEach(n=>{
+    const btn=document.createElement('button');
+    btn.className='node-btn';
+    btn.style.left=n.x+'%';btn.style.top=n.y+'%';
+    btn.onclick=()=>selectNode(n.id);
+    const a=selectedId===n.id;
+    const bg=a?n.color:'white',fg=a?'white':'#1e293b';
+    const sh=a?'0 4px 16px '+n.color+'44':'0 1px 4px rgba(0,0,0,0.08)';
+    const sc=a?'scale(1.08)':'scale(1)';
+    btn.innerHTML='<div class="node-chip" style="background:'+bg+';border-color:'+n.color+';color:'+fg+';box-shadow:'+sh+';transform:'+sc+';"><span class="emoji">'+n.emoji+'</span><span>'+n.label+'</span></div>';
+    box.appendChild(btn);
+  });
+}
+
+function toggleQ(key){
+  if(expandedQs.has(key))expandedQs.delete(key);else expandedQs.add(key);
+  renderDetail();
+}
+
+function renderDetail(){
+  const ct=document.getElementById('detailContainer');
+  const hint=document.getElementById('emptyHint');
+  if(!selectedId){ct.innerHTML='';hint.style.display='block';return;}
+  hint.style.display='none';
+  const n=getNode(selectedId);
+  let ch='';
+  n.content.forEach(i=>{
+    if(i.type==='h3')ch+='<h3>'+i.text+'</h3>';
+    else if(i.type==='p')ch+='<p>'+i.text+'</p>';
+    else if(i.type==='bullet')ch+='<div class="bullet"><span class="dot">•</span><span>'+i.text+'</span></div>';
+    else if(i.type==='step')ch+='<p class="step-label">'+i.text+'</p>';
+  });
+  let th='';
+  n.thinkAbout.forEach((item,idx)=>{
+    const key=n.id+'-'+idx;
+    const open=expandedQs.has(key);
+    th+='<div>';
+    th+='<div class="qa-question" onclick="toggleQ(\''+key+'\')">';
+    th+='<span class="arrow">'+(open?'▼':'▶')+'</span>';
+    th+='<span class="qtext">'+item.q+'</span></div>';
+    if(open){
+      th+='<div class="qa-detail">';
+      th+='<div class="qa-block" style="background:#fef3c7;border-color:#f59e0b;"><div class="block-label" style="color:#92400e;">ORIGINAL TEXT</div><p class="block-text" style="color:#78350f;font-style:italic;">'+item.en+'</p></div>';
+      th+='<div class="qa-block" style="background:#ecfdf5;border-color:#10b981;"><div class="block-label" style="color:#065f46;">中文学术翻译</div><p class="block-text" style="color:#064e3b;">'+item.zh+'</p></div>';
+      th+='<div class="qa-block" style="background:#eff6ff;border-color:#3b82f6;"><div class="block-label" style="color:#1e40af;">解答</div><div class="block-text" style="color:#1e3a5f;">'+item.a+'</div></div>';
+      th+='</div>';
+    }
+    th+='</div>';
+  });
+  ct.innerHTML=
+    '<div class="detail-panel" style="border-color:'+n.color+'40;">'+
+    '<div class="detail-header" style="background:'+n.color+'10;">'+
+    '<div class="info"><h2 style="color:'+n.color+';">'+n.emoji+' '+n.label+'</h2><div class="section">'+n.section+'</div></div>'+
+    '<button class="close-btn" onclick="selectNode(null)">×</button></div>'+
+    '<div class="detail-body">'+
+    '<div class="key-question" style="background:'+n.color+'08;border:1px solid '+n.color+'20;"><div class="label" style="color:'+n.color+';">核心问题</div><div class="text">'+n.keyQuestion+'</div></div>'+
+    '<div class="content-area">'+ch+'</div>'+
+    '<div class="think-box"><div class="title">带着这些问题去读原文（点击展开）</div>'+th+'</div>'+
+    '<div class="paper-ref">'+n.paperRef+'</div></div></div>';
+}
+
+function selectNode(id){
+  selectedId=(selectedId===id)?null:id;
+  expandedQs.clear();
+  loadPages();
+  renderMap();
+  renderDetail();
+  highlightPages(selectedId?getNode(selectedId):null);
+  if(selectedId){
+    setTimeout(()=>{
+      const dc=document.getElementById('detailContainer');
+      if(dc&&dc.firstChild)dc.firstChild.scrollIntoView({behavior:'smooth',block:'start'});
+    },150);
+  }
+}
+
+// Draggable divider
+(function(){
+  const div=document.getElementById('divider');
+  const pp=document.getElementById('paperPane');
+  let dragging=false;
+  div.addEventListener('mousedown',e=>{dragging=true;e.preventDefault();});
+  document.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    const pct=Math.min(70,Math.max(25,e.clientX/window.innerWidth*100));
+    pp.style.width=pct+'%';
+  });
+  document.addEventListener('mouseup',()=>{dragging=false;});
+})();
+
+renderMap();
+renderDetail();
+</script>
+</body>
+</html>
