@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness — 交互式阅读指南</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,"Noto Sans SC","PingFang SC",sans-serif;background:#f1f5f9;height:100vh;overflow:hidden;display:flex;}
+
+/* LEFT: Paper viewer */
+.paper-pane{width:42%;height:100vh;background:#525659;overflow-y:auto;position:relative;flex-shrink:0;}
+.paper-pane::-webkit-scrollbar{width:8px;}
+.paper-pane::-webkit-scrollbar-thumb{background:#888;border-radius:4px;}
+.paper-hint{color:#94a3b8;text-align:center;padding:40px 20px;font-size:14px;line-height:1.8;}
+.page-wrapper{position:relative;margin:8px auto;width:95%;}
+.page-wrapper img{width:100%;display:block;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.3);}
+.page-label{position:absolute;top:8px;right:12px;background:rgba(0,0,0,0.5);color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;z-index:2;}
+.highlight-overlay{position:absolute;left:0;width:100%;border:3px solid;border-radius:6px;pointer-events:none;z-index:1;transition:all 0.3s;}
+
+/* RIGHT: Guide */
+.guide-pane{flex:1;height:100vh;overflow-y:auto;padding:20px 24px;background:linear-gradient(135deg,#f8fafc 0%,#f0f4ff 50%,#faf5ff 100%);}
+.guide-pane::-webkit-scrollbar{width:8px;}
+.guide-pane::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px;}
+
+.header{text-align:center;margin-bottom:16px;}
+.header h1{font-size:22px;font-weight:800;color:#1e293b;}
+.header p{color:#94a3b8;font-size:12px;margin-top:4px;}
+
+.map-box{background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:12px;margin-bottom:16px;position:relative;height:360px;box-shadow:0 1px 3px rgba(0,0,0,0.04);}
+.map-svg{position:absolute;inset:0;width:100%;height:100%;z-index:0;}
+.node-btn{position:absolute;transform:translate(-50%,-50%);z-index:1;background:none;border:none;cursor:pointer;transition:all 0.2s;}
+.node-chip{border-radius:14px;padding:7px 14px;box-shadow:0 1px 4px rgba(0,0,0,0.08);display:flex;align-items:center;gap:6px;border:2px solid;transition:all 0.2s;font-size:12px;font-weight:600;white-space:nowrap;}
+.node-chip .emoji{font-size:14px;}
+.node-btn:hover .node-chip{transform:scale(1.05);}
+
+.detail-panel{border-radius:14px;border:1px solid;box-shadow:0 4px 20px rgba(0,0,0,0.06);overflow:hidden;margin-bottom:16px;background:#fafbfd;animation:slideIn 0.25s ease-out;}
+@keyframes slideIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+.detail-header{padding:16px 20px;display:flex;justify-content:space-between;align-items:center;}
+.detail-header .info h2{font-size:18px;font-weight:700;display:flex;align-items:center;gap:6px;}
+.detail-header .info .section{font-size:11px;color:#94a3b8;margin-top:2px;}
+.detail-header .close-btn{font-size:24px;color:#94a3b8;background:none;border:none;cursor:pointer;padding:0 4px;line-height:1;}
+.detail-body{padding:0 20px 20px;}
+.key-question{border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+.key-question .label{font-size:12px;font-weight:600;}
+.key-question .text{font-size:13px;color:#334155;margin-top:3px;line-height:1.6;}
+.content-area{color:#475569;}
+.content-area h3{font-size:14px;font-weight:700;color:#1e293b;margin:14px 0 4px;}
+.content-area p{font-size:13px;line-height:1.7;margin-bottom:4px;}
+.content-area .bullet{display:flex;gap:6px;font-size:13px;margin-left:6px;margin-bottom:3px;line-height:1.6;}
+.content-area .bullet .dot{color:#94a3b8;margin-top:1px;flex-shrink:0;}
+.content-area .step-label{font-size:13px;font-weight:600;color:#1e293b;margin-top:8px;}
+.content-area strong{color:#1e293b;font-weight:600;}
+.think-box{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;margin-top:16px;}
+.think-box .title{font-size:12px;font-weight:600;color:#b45309;margin-bottom:8px;}
+.qa-question{cursor:pointer;display:flex;gap:6px;align-items:flex-start;padding:6px 0;border-radius:6px;transition:background 0.15s;}
+.qa-question:hover{background:rgba(245,158,11,0.08);}
+.qa-question .arrow{color:#b45309;flex-shrink:0;font-size:11px;margin-top:3px;width:14px;}
+.qa-question .qtext{color:#92400e;font-size:13px;line-height:1.6;}
+.qa-detail{margin:0 0 10px 18px;animation:slideIn 0.2s ease-out;}
+.qa-block{padding:10px 12px;border-radius:0 8px 8px 0;margin-bottom:8px;border-left:3px solid;}
+.qa-block .block-label{font-size:10px;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;}
+.qa-block .block-text{font-size:12px;line-height:1.7;margin:0;}
+.paper-ref{margin-top:10px;font-size:11px;color:#94a3b8;font-style:italic;}
+.empty-hint{text-align:center;padding:24px;color:#94a3b8;font-size:13px;}
+
+/* Divider handle */
+.divider{width:5px;background:#cbd5e1;cursor:col-resize;flex-shrink:0;transition:background 0.2s;}
+.divider:hover{background:#94a3b8;}
+</style>
+</head>
+<body>
+<div class="paper-pane" id="paperPane">
+  <div class="paper-hint" id="paperHint">
+    ← 选择右侧概念节点后<br>这里会跳转到对应的论文原文<br>并高亮标出相关章节
+  </div>
+</div>
+<div class="divider" id="divider"></div>
+<div class="guide-pane" id="guidePane">
+  <div class="header">
+    <h1 id="titleEl"></h1>
+    <p>点击概念节点 → 左侧跳转原文并高亮 · 右侧展开讲解</p>
+  </div>
+  <div class="map-box" id="mapBox">
+    <svg class="map-svg" id="mapSvg"></svg>
+  </div>
+  <div id="detailContainer"></div>
+  <div class="empty-hint" id="emptyHint">点击上方概念节点，开始探索</div>
+</div>
+
+<script>
+const PAPER_TITLE = "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness";
+const TOTAL_PAGES = 34;
+const PAGES_DIR = "pages";
+const nodes = [
+  {
+    "id": "problem",
+    "label": "问题背景",
+    "emoji": "🎯",
+    "color": "#ef4444",
+    "x": 50,
+    "y": 8,
+    "section": "第1节：Introduction",
+    "pages": [
+      1,
+      2
+    ],
+    "scrollTo": 1,
+    "highlights": [
+      {
+        "page": 1,
+        "top": 15,
+        "height": 80
+      },
+      {
+        "page": 2,
+        "top": 0,
+        "height": 50
+      }
+    ],
+    "keyQuestion": "Attention 真正的性能瓶颈不是计算量，而是什么？",
+    "content": [
+      {
+        "type": "h3",
+        "text": "问题的起点：Transformer 的 O(N²) 困境"
+      },
+      {
+        "type": "p",
+        "text": "Self-Attention 的时间和内存复杂度都是序列长度 N 的平方。对于 GPT-2（N=1024, d=64），注意力矩阵 S=QK<sup>T</sup> 的大小为 1024×1024 = 1M 个元素。当 N 增长到 4K、16K 甚至 64K 时（如长文档、高分辨率图像），这个矩阵会爆炸式增长，成为模型扩展的主要障碍。"
+      },
+      {
+        "type": "h3",
+        "text": "现有方案的失败：近似注意力"
+      },
+      {
+        "type": "p",
+        "text": "2022年之前，学术界提出了大量近似注意力方法（Linformer、Performer、Reformer 等），试图将 O(N²) 降到 O(N) 或 O(N log N)。它们的共同策略是<strong>牺牲模型质量换取计算量</strong>。但论文指出一个关键事实：这些方法虽然减少了 FLOPs，却<strong>往往没有实现真正的 wall-clock 加速</strong>。"
+      },
+      {
+        "type": "h3",
+        "text": "被忽视的真相：内存访问才是瓶颈"
+      },
+      {
+        "type": "p",
+        "text": "这篇论文的核心洞察在于：现代 GPU 的<strong>计算速度远超内存带宽</strong>。A100 GPU 的计算能力是 312 TFLOPS，但 HBM（高带宽内存）的带宽只有 1.5~2.0 TB/s。大部分 Transformer 操作实际上是<strong>内存受限的（memory-bound）</strong>，而非计算受限的。论文引用了 Ivanov et al. [43] 的研究：「Data movement is all you need」。"
+      },
+      {
+        "type": "h3",
+        "text": "GPU 内存层级：HBM vs SRAM"
+      },
+      {
+        "type": "p",
+        "text": "GPU 有两级主要存储：<strong>HBM（High Bandwidth Memory）</strong>容量大（A100: 40GB）但带宽相对低（1.5 TB/s），<strong>SRAM（片上缓存）</strong>容量极小（A100: ~20MB）但带宽极高（19 TB/s）。标准注意力实现需要反复在 HBM 中读写巨大的 N×N 矩阵，而这些读写操作才是真正的时间杀手。"
+      },
+      {
+        "type": "h3",
+        "text": "论文的核心主张"
+      },
+      {
+        "type": "p",
+        "text": "作者提出了一个被深度学习社区长期忽视的原则：<strong>让注意力算法具有 IO 感知性（IO-aware）</strong>——在算法设计中显式考虑不同层级内存之间的数据读写。这一原则在数据库、图像处理、数值线性代数等领域早已成熟，但 PyTorch/TensorFlow 等框架缺乏对内存访问的精细控制，导致深度学习社区一直没有采纳。"
+      },
+      {
+        "type": "h3",
+        "text": "成果预览"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention 实现了：BERT-large 训练加速 15%（超越 MLPerf 1.1 记录）、GPT-2 训练加速 3×、长序列任务（LRA）加速 2.4×。同时支持更长上下文：GPT-2 扩展到 4K 上下文（困惑度提升 0.7），首次在 Path-X（序列长度 16K）上达到优于随机的表现。关键是——<strong>结果完全精确，不是近似</strong>。"
+      }
+    ],
+    "thinkAbout": [
+      {
+        "q": "为什么减少 FLOPs 的近似注意力方法反而没有实现 wall-clock 加速？",
+        "en": "Approximate attention methods have attempted to address this problem by trading off model quality to reduce the compute complexity, but often do not achieve wall-clock speedup. We argue that a missing principle is making attention algorithms IO-aware.",
+        "zh": "近似注意力方法试图通过牺牲模型质量来降低计算复杂度以解决这一问题，但往往未能实现实际的墙钟时间加速。我们认为缺失的原则是使注意力算法具有 IO 感知性。",
+        "a": "因为注意力是内存受限操作，不是计算受限。减少 FLOPs 但不减少内存访问，就像修了更宽的高速公路但收费站还是一个——瓶颈没变。FlashAttention 直击根源：减少 HBM 读写次数。"
+      },
+      {
+        "q": "A100 GPU 的 SRAM 和 HBM 带宽差多少？这个差距意味着什么？",
+        "en": "GPUs, compute speed has out-paced memory speed, and most operations in Transformers are bottlenecked by memory accesses.",
+        "zh": "GPU 的计算速度已经超越了内存速度，Transformer 中的大部分操作都受限于内存访问。",
+        "a": "SRAM 19 TB/s vs HBM 1.5 TB/s，相差约 13 倍。这意味着如果能把计算放在 SRAM 中完成（而非反复读写 HBM），理论上可以获得数量级的加速。FlashAttention 正是通过 tiling 将计算搬到 SRAM 中。"
+      },
+      {
+        "q": "为什么 PyTorch/TensorFlow 不能自动做到 IO 感知？",
+        "en": "However, common Python interfaces to deep learning such as PyTorch and Tensorflow do not allow fine-grained control of memory access.",
+        "zh": "然而，PyTorch 和 TensorFlow 等常用的深度学习 Python 接口不允许对内存访问进行精细控制。",
+        "a": "PyTorch 的 autograd 将每个操作（matmul、softmax、dropout）编译为独立的 CUDA kernel。每个 kernel 都从 HBM 读输入、写输出。多个 kernel 之间的中间结果必须经过 HBM 中转。要真正减少 IO，需要手写融合的 CUDA kernel——将整个注意力计算合并为一个 kernel，这正是 FlashAttention 的实现方式。"
+      }
+    ],
+    "paperRef": "论文第1-2页 Abstract + Introduction"
+  },
+  {
+    "id": "standard_attn",
+    "label": "标准注意力实现",
+    "emoji": "📋",
+    "color": "#f59e0b",
+    "x": 25,
+    "y": 30,
+    "section": "第2.2节：Standard Attention Implementation",
+    "pages": [
+      4
+    ],
+    "scrollTo": 4,
+    "highlights": [
+      {
+        "page": 3,
+        "top": 70,
+        "height": 30
+      },
+      {
+        "page": 4,
+        "top": 0,
+        "height": 85
+      }
+    ],
+    "keyQuestion": "标准注意力实现为什么慢？它的 HBM 访问量到底有多大？",
+    "content": [
+      {
+        "type": "h3",
+        "text": "标准实现的三步流程（Algorithm 0）"
+      },
+      {
+        "type": "p",
+        "text": "标准注意力计算分为三个独立的步骤，每步都是一个 CUDA kernel："
+      },
+      {
+        "type": "step",
+        "text": "① 从 HBM 加载 Q, K，计算 S = QK<sup>T</sup> ∈ ℝ<sup>N×N</sup>，将 S 写回 HBM"
+      },
+      {
+        "type": "step",
+        "text": "② 从 HBM 读取 S，计算 P = softmax(S) ∈ ℝ<sup>N×N</sup>，将 P 写回 HBM"
+      },
+      {
+        "type": "step",
+        "text": "③ 从 HBM 加载 P 和 V，计算 O = PV ∈ ℝ<sup>N×d</sup>，将 O 写回 HBM"
+      },
+      {
+        "type": "h3",
+        "text": "问题：N×N 矩阵的反复读写"
+      },
+      {
+        "type": "p",
+        "text": "关键问题在于中间矩阵 S 和 P 的大小都是 <strong>N×N</strong>。对于 N=1024, d=64 的 GPT-2，S 和 P 各有 100 万个元素（4MB float32），远大于 Q、K、V 各自的 65536 个元素（256KB）。三步流程需要把这些 N×N 矩阵反复写入和读出 HBM。"
+      },
+      {
+        "type": "h3",
+        "text": "IO 复杂度分析"
+      },
+      {
+        "type": "p",
+        "text": "标准实现的 HBM 访问量为 <strong>Θ(Nd + N²)</strong>。当 N >> d 时（典型场景），N² 项占主导——这是二次增长的根源。以 GPT-2 为例（N=1024, d=64）：Nd = 65K 而 N² = 1M，HBM 读写量被 N×N 矩阵主导。"
+      },
+      {
+        "type": "h3",
+        "text": "额外开销：逐元素操作"
+      },
+      {
+        "type": "p",
+        "text": "实际中还有更多 memory-bound 操作：对 S 施加 <strong>masking</strong>（causal mask）、对 P 施加 <strong>dropout</strong>。每个操作都是一个独立 kernel，又一轮 HBM 读写。Megatron-LM 等框架尝试将 masking 和 softmax 融合为一个 kernel，但仍无法避免 N×N 矩阵的物化。"
+      },
+      {
+        "type": "h3",
+        "text": "定量对比"
+      },
+      {
+        "type": "p",
+        "text": "论文 Figure 2 给出了具体数据（GPT-2 medium, N=1024, d=64, 16 heads, batch=64, A100）：标准注意力 FLOPs 66.6 GFLOPs，HBM 读写 <strong>40.3 GB</strong>，运行时间 41.7ms。FlashAttention FLOPs 75.2 GFLOPs（多了13%），HBM 读写 <strong>4.4 GB</strong>（少了 9.2×），运行时间 7.3ms（快了 <strong>5.7×</strong>）。计算量增加了但时间大幅减少——完美验证了「IO 才是瓶颈」。"
+      }
+    ],
+    "thinkAbout": [
+      {
+        "q": "为什么 softmax 特别难以融合？它与矩阵乘法有什么本质区别？",
+        "en": "Standard attention implementations materialize the matrices S and P to HBM, which takes O(N²) memory. Often N >> d (e.g., for GPT2, N = 1024 and d = 64).",
+        "zh": "标准注意力实现将矩阵 S 和 P 物化到 HBM 中，占用 O(N²) 内存。通常 N >> d（例如 GPT-2 中 N=1024, d=64）。",
+        "a": "矩阵乘法可以分块独立计算（C 的每个块只依赖 A、B 的对应行/列块）。但 softmax 需要整行的最大值和求和值——它耦合了 K 的所有列。必须看完整行才能归一化，这就是为什么标准实现必须先物化整个 S 矩阵。FlashAttention 用在线算法（online softmax）解决了这个耦合。"
+      },
+      {
+        "q": "FlashAttention 的 FLOPs 反而更多（75.2 vs 66.6），为什么还更快？",
+        "en": "HBM access is the primary factor affecting runtime.",
+        "zh": "HBM 访问是影响运行时间的主要因素。",
+        "a": "因为 GPU 运算是高度流水线化的，多出的 FLOPs 可以被并行计算单元「免费」吸收。而 HBM 读写必须等待数据传输，没有免费午餐。标准实现 40.3GB IO vs FlashAttention 4.4GB IO——9.2× 的 IO 减少远超 13% 的 FLOPs 增加，净效果是 5.7× 加速。"
+      },
+      {
+        "q": "Masking 和 Dropout 为什么会进一步恶化 IO 问题？",
+        "en": "This problem is exacerbated by other elementwise operations applied to the attention matrix, such as masking applied to S or dropout applied to P.",
+        "zh": "其他逐元素操作进一步加剧了这个问题，例如对 S 施加掩码或对 P 施加 dropout。",
+        "a": "每个逐元素操作都是一个独立 CUDA kernel。每个 kernel 需要从 HBM 读取完整的 N×N 矩阵，修改后写回。Masking 读写一次 N²，Dropout 又读写一次 N²。总 IO 从 3N² 增长到 5N² 以上。FlashAttention 将所有操作融合进一个 kernel，只读写一次。"
+      }
+    ],
+    "paperRef": "论文第3-4页 Section 2.2 + Algorithm 0"
+  },
+  {
+    "id": "online_softmax",
+    "label": "在线Softmax",
+    "emoji": "🧮",
+    "color": "#8b5cf6",
+    "x": 75,
+    "y": 30,
+    "section": "第3.1节：Tiling with Online Softmax",
+    "pages": [
+      5
+    ],
+    "scrollTo": 5,
+    "highlights": [
+      {
+        "page": 5,
+        "top": 0,
+        "height": 55
+      }
+    ],
+    "keyQuestion": "Softmax 需要看完整行才能计算——如何一块一块地增量完成？",
+    "content": [
+      {
+        "type": "h3",
+        "text": "核心挑战：Softmax 的全局依赖"
+      },
+      {
+        "type": "p",
+        "text": "softmax(x)<sub>i</sub> = e<sup>x<sub>i</sub></sup> / Σ<sub>j</sub> e<sup>x<sub>j</sub></sup>。分母需要对整行求和，意味着你必须看完所有元素才能输出任何一个元素。这就是为什么标准实现必须先计算并存储完整的 N×N 矩阵——softmax 将 K 的所有列<strong>耦合</strong>在了一起。"
+      },
+      {
+        "type": "h3",
+        "text": "数值稳定的 Softmax：减最大值"
+      },
+      {
+        "type": "p",
+        "text": "实际实现中，为防止数值溢出，会先减去行最大值：softmax(x)<sub>i</sub> = e<sup>x<sub>i</sub>-m(x)</sup> / Σ<sub>j</sub> e<sup>x<sub>j</sub>-m(x)</sup>，其中 m(x) = max(x)。这引入了两个需要全局信息的统计量：<strong>m(x)</strong>（行最大值）和 <strong>ℓ(x)</strong>（归一化分母）。"
+      },
+      {
+        "type": "h3",
+        "text": "关键突破：分块增量更新"
+      },
+      {
+        "type": "p",
+        "text": "假设我们已经处理了前一半 x<sup>(1)</sup>，得到了 m(x<sup>(1)</sup>) 和 ℓ(x<sup>(1)</sup>)。现在来了后一半 x<sup>(2)</sup>。我们可以<strong>增量更新</strong>："
+      },
+      {
+        "type": "bullet",
+        "text": "<strong>新的最大值</strong>：m(x) = max(m(x<sup>(1)</sup>), m(x<sup>(2)</sup>))"
+      },
+      {
+        "type": "bullet",
+        "text": "<strong>新的分母</strong>：ℓ(x) = e<sup>m(x<sup>(1)</sup>)-m(x)</sup>·ℓ(x<sup>(1)</sup>) + e<sup>m(x<sup>(2)</sup>)-m(x)</sup>·ℓ(x<sup>(2)</sup>)"
+      },
+      {
+        "type": "p",
+        "text": "关键在于<strong>缩放因子</strong> e<sup>m<sub>old</sub>-m<sub>new</sub></sup>：当新块的最大值更大时，旧的累积结果需要乘以这个衰减因子来「修正」。这样，我们只需保存 (m, ℓ) 两个标量就能正确合并任意数量的块。"
+      },
+      {
+        "type": "h3",
+        "text": "与 Output 的结合"
+      },
+      {
+        "type": "p",
+        "text": "不仅 softmax 分母可以增量更新，<strong>最终输出 O 也可以</strong>。处理新块时，先用缩放因子修正旧的 O，再加上新块的贡献：O<sub>new</sub> = diag(ℓ<sub>new</sub>)<sup>-1</sup>(diag(ℓ<sub>old</sub>)·e<sup>m<sub>old</sub>-m<sub>new</sub></sup>·O<sub>old</sub> + e<sup>m̃-m<sub>new</sub></sup>·P̃V<sub>j</sub>)。这个公式是 Algorithm 1 第12行的核心。"
+      },
+      {
+        "type": "h3",
+        "text": "这个技术的渊源"
+      },
+      {
+        "type": "p",
+        "text": "在线 softmax 的数学原理并非 FlashAttention 首创——Milakov & Gimelshein [60] 曾提出过类似思想，Kitaev et al.（Reformer）和 Rabe & Staats [66] 也使用过。FlashAttention 的创新在于<strong>将它与 IO 感知的 tiling 策略结合</strong>，不仅节省内存，更大幅减少了 HBM 访问。"
+      }
+    ],
+    "thinkAbout": [
+      {
+        "q": "为什么在线 softmax 需要同时维护最大值 m 和分母 ℓ 两个统计量？",
+        "en": "Therefore if we keep track of some extra statistics (m(x), ℓ(x)), we can compute softmax one block at a time.",
+        "zh": "因此，如果我们额外记录一些统计量 (m(x), ℓ(x))，就可以逐块计算 softmax。",
+        "a": "m(x) 保证数值稳定性（减去最大值防溢出），ℓ(x) 是归一化分母。两者缺一不可：没有 m 会溢出，没有 ℓ 无法归一化。合并新块时，旧的 m 可能不再是全局最大值，需要用 e^(m_old - m_new) 修正——这就是增量更新的核心。"
+      },
+      {
+        "q": "如果新块的最大值比旧块小得多，缩放因子 e^(m_old - m_new) 会怎样？",
+        "en": "We can decompose the softmax of the concatenated x as: m(x) = max(m(x(1)), m(x(2))).",
+        "zh": "我们可以将拼接后的 x 的 softmax 分解为：m(x) = max(m(x(1)), m(x(2)))。",
+        "a": "m_old - m_new 会是0或负数（因为 m_new = max(m_old, m̃)）。如果旧块最大值更大，e^(m_old - m_new) = e^0 = 1，旧结果不变；新块的贡献会被衰减。如果新块最大值更大，旧结果被衰减，新块贡献更大。这正是 softmax 的正确语义：更大的值应获得更大的权重。"
+      },
+      {
+        "q": "这种增量 softmax 的精度和一次性计算完全一致吗？",
+        "en": "We propose FlashAttention, an IO-aware exact attention algorithm that uses tiling to reduce the number of memory reads/writes.",
+        "zh": "我们提出 FlashAttention，一种 IO 感知的精确注意力算法，使用分块技术减少内存读写次数。",
+        "a": "完全一致——这是数学上严格的等价变换，不是近似。论文附录 C 给出了完整的正确性证明（通过数学归纳法）。e^(m_old - m_new) 的缩放因子确保每一步的数值结果与全局计算完全相同。这也是 FlashAttention 标题中「Exact Attention」的含义。"
+      }
+    ],
+    "paperRef": "论文第5页 Section 3.1"
+  },
+  {
+    "id": "algorithm",
+    "label": "核心算法",
+    "emoji": "⚡",
+    "color": "#3b82f6",
+    "x": 50,
+    "y": 52,
+    "section": "第3.1节：Algorithm 1",
+    "pages": [
+      5,
+      6
+    ],
+    "scrollTo": 5,
+    "highlights": [
+      {
+        "page": 5,
+        "top": 50,
+        "height": 50
+      },
+      {
+        "page": 6,
+        "top": 0,
+        "height": 40
+      }
+    ],
+    "keyQuestion": "FlashAttention 的双重循环如何组织？为什么外层遍历 K/V、内层遍历 Q？",
+    "content": [
+      {
+        "type": "h3",
+        "text": "算法的宏观结构"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention（Algorithm 1）是一个<strong>双层嵌套循环</strong>：外层遍历 K、V 的块（红色箭头，Figure 1），内层遍历 Q 的块（蓝色箭头）。每次迭代在 SRAM 中完成一个小块的全部计算（matmul → mask → softmax → dropout → matmul），然后将结果写回 HBM。"
+      },
+      {
+        "type": "h3",
+        "text": "分块策略"
+      },
+      {
+        "type": "p",
+        "text": "块大小由 SRAM 容量决定：<strong>B<sub>c</sub> = ⌈M/(4d)⌉</strong>，<strong>B<sub>r</sub> = min(⌈M/(4d)⌉, d)</strong>。其中 M 是 SRAM 大小，d 是 head dimension。这保证了一个 Q 块（B<sub>r</sub>×d）、一个 K 块（B<sub>c</sub>×d）、一个 V 块（B<sub>c</sub>×d）以及中间结果（B<sub>r</sub>×B<sub>c</sub>）能同时装入 SRAM。以 A100 为例：M≈100KB, d=64 → B<sub>c</sub>=B<sub>r</sub>≈256。"
+      },
+      {
+        "type": "h3",
+        "text": "逐步执行"
+      },
+      {
+        "type": "step",
+        "text": "① 初始化 O=(0)、ℓ=(0)、m=(-∞) 在 HBM 中"
+      },
+      {
+        "type": "step",
+        "text": "② 外层循环：加载第 j 块 K<sub>j</sub>, V<sub>j</sub> 到 SRAM"
+      },
+      {
+        "type": "step",
+        "text": "③ 内层循环：加载第 i 块 Q<sub>i</sub>, O<sub>i</sub>, ℓ<sub>i</sub>, m<sub>i</sub> 到 SRAM"
+      },
+      {
+        "type": "step",
+        "text": "④ 在 SRAM 上计算 S<sub>ij</sub> = Q<sub>i</sub>K<sub>j</sub><sup>T</sup>（小块的注意力分数）"
+      },
+      {
+        "type": "step",
+        "text": "⑤ 在 SRAM 上完成 mask → 在线 softmax 更新 → dropout → 累加输出"
+      },
+      {
+        "type": "step",
+        "text": "⑥ 将更新后的 O<sub>i</sub>, ℓ<sub>i</sub>, m<sub>i</sub> 写回 HBM"
+      },
+      {
+        "type": "h3",
+        "text": "为什么外层遍历 K/V？"
+      },
+      {
+        "type": "p",
+        "text": "这个循环顺序是精心选择的。外层遍历 K/V 意味着每个 K<sub>j</sub>, V<sub>j</sub> 块只从 HBM 加载一次，然后在内层循环中被所有 Q 块复用。如果反过来（外层 Q、内层 K/V），每个 Q 块处理时都要重新加载所有 K/V 块，IO 量更大。"
+      },
+      {
+        "type": "h3",
+        "text": "Kernel Fusion：全部融合为一个 CUDA kernel"
+      },
+      {
+        "type": "p",
+        "text": "分块使得整个注意力计算（两次矩阵乘法 + softmax + masking + dropout）被<strong>融合为单个 CUDA kernel</strong>。输入从 HBM 加载一次，所有计算在 SRAM 完成，结果写回一次。标准实现需要 5+ 个独立 kernel，每个都触发 HBM 读写。这就是 FlashAttention 的速度之源。"
+      }
+    ],
+    "thinkAbout": [
+      {
+        "q": "块大小 B_c = ⌈M/(4d)⌉ 中的 4 是怎么来的？",
+        "en": "Set block sizes B_c = ⌈M/(4d)⌉, B_r = min(⌈M/(4d)⌉, d).",
+        "zh": "设置块大小 B_c = ⌈M/(4d)⌉，B_r = min(⌈M/(4d)⌉, d)。",
+        "a": "SRAM 需要同时容纳 4 个矩阵块：Q 块 (B_r×d)、K 块 (B_c×d)、V 块 (B_c×d)、以及中间结果 S 块 (B_r×B_c)。当 B_r≈B_c≈M/(4d) 时，总内存约为 3·(M/4)·d + (M/4d)² ≈ M。4d 中的 4 就是这 4 个矩阵的贡献。"
+      },
+      {
+        "q": "如果 SRAM 更大（比如下一代 GPU），FlashAttention 会更快吗？",
+        "en": "We analyze the IO complexity of FlashAttention, showing that it requires fewer HBM accesses than standard attention, and is optimal for a range of SRAM sizes.",
+        "zh": "我们分析了 FlashAttention 的 IO 复杂度，证明它比标准注意力需要更少的 HBM 访问，并且在一系列 SRAM 大小范围内是最优的。",
+        "a": "是的。FlashAttention 的 HBM 访问量为 Θ(N²d²/M)，M 越大，访问次数越少。更大的 SRAM 允许更大的块，每次在片上完成更多计算。Figure 2 中间图验证了这一点：块大小从 64 增到 256，运行时间持续下降。"
+      },
+      {
+        "q": "为什么内层循环处理 Q 而不是 K/V？如果反过来会怎样？",
+        "en": "In the outer loop (red arrows), FlashAttention loops through blocks of the K and V matrices and loads them to fast on-chip SRAM. In each block, FlashAttention loops over blocks of Q matrix (blue arrows).",
+        "zh": "在外层循环中（红色箭头），FlashAttention 遍历 K 和 V 矩阵的块并加载到快速片上 SRAM。在每个块中，FlashAttention 遍历 Q 矩阵的块（蓝色箭头）。",
+        "a": "关键在于在线 softmax 的更新方向。softmax 沿 K 的维度（列方向）归一化，所以外层遍历 K 的块意味着每处理一个新的 K 块就更新一次 softmax 统计量。如果反过来，每个 Q 块需要等所有 K 块处理完才能得到最终 softmax——要么存 N×N 矩阵（回到标准实现），要么多次遍历 K/V（IO 更多）。"
+      }
+    ],
+    "paperRef": "论文第5-6页 Algorithm 1 + Figure 1"
+  },
+  {
+    "id": "io_complexity",
+    "label": "IO复杂度",
+    "emoji": "📐",
+    "color": "#10b981",
+    "x": 15,
+    "y": 52,
+    "section": "第3.2节：Analysis",
+    "pages": [
+      6
+    ],
+    "scrollTo": 6,
+    "highlights": [
+      {
+        "page": 6,
+        "top": 25,
+        "height": 55
+      }
+    ],
+    "keyQuestion": "FlashAttention 节省了多少 HBM 访问？它是最优的吗？",
+    "content": [
+      {
+        "type": "h3",
+        "text": "Theorem 2：HBM 访问量的精确分析"
+      },
+      {
+        "type": "p",
+        "text": "<strong>标准注意力</strong>（Algorithm 0）的 HBM 访问量：<strong>Θ(Nd + N²)</strong>"
+      },
+      {
+        "type": "p",
+        "text": "<strong>FlashAttention</strong>（Algorithm 1）的 HBM 访问量：<strong>Θ(N²d²/M)</strong>"
+      },
+      {
+        "type": "p",
+        "text": "其中 N 是序列长度，d 是 head dimension，M 是 SRAM 大小，且 d ≤ M ≤ Nd。"
+      },
+      {
+        "type": "h3",
+        "text": "直觉理解"
+      },
+      {
+        "type": "p",
+        "text": "标准实现的 Θ(Nd + N²) 中，N² 项来自物化整个注意力矩阵。FlashAttention 的 Θ(N²d²/M) 可以这样理解：外层循环有 N·d/M 轮（K/V 的块数），每轮内层遍历所有 Q 块，加载 Nd 个元素。总 IO = (Nd/M) × Nd = N²d²/M。"
+      },
+      {
+        "type": "h3",
+        "text": "加速比"
+      },
+      {
+        "type": "p",
+        "text": "加速比 = (Nd + N²) / (N²d²/M) ≈ M/d²（当 N >> d 时）。对于 A100：M ≈ 100KB = 100×1024 bytes, d=64, float16 → d² = 64×64×2 = 8KB。加速比 ≈ 100KB/8KB ≈ <strong>12.5×</strong>。这与实测的 7.6× 加速（Figure 1 右图）在同一量级，差异来自常数因子和 kernel 开销。"
+      },
+      {
+        "type": "h3",
+        "text": "Proposition 3：最优性证明"
+      },
+      {
+        "type": "p",
+        "text": "论文进一步证明（Proposition 3）：<strong>不存在</strong>任何精确注意力算法在所有 SRAM 大小 M ∈ [d, Nd] 上渐近优于 FlashAttention。证明思路是反证法：如果 HBM 访问量 = o(N²d²/M)，在 M = Θ(Nd) 时会得到 o(Nd)——但输入输出本身就有 Nd 大小，至少需要 Ω(Nd) 次访问。矛盾。"
+      },
+      {
+        "type": "h3",
+        "text": "关键洞察"
+      },
+      {
+        "type": "p",
+        "text": "这是一个优雅的下界论证——它说明 FlashAttention 已经触及了<strong>信息论极限</strong>。任何精确计算注意力的算法都不可能比它更少地访问 HBM。这意味着未来的优化只能来自<strong>近似方法</strong>（如稀疏注意力）或<strong>硬件改进</strong>（更大的 SRAM）。"
+      }
+    ],
+    "thinkAbout": [
+      {
+        "q": "为什么最优性证明用的是反证法？直接证下界不行吗？",
+        "en": "However, the input to attention (matrices Q, K, V) and the output O have size Nd and they start out being in HBM, so if the algorithm computes exact attention it must incur at least Ω(Nd) HBM accesses.",
+        "zh": "然而，注意力的输入（矩阵 Q, K, V）和输出 O 的大小为 Nd，且初始存储在 HBM 中，因此任何计算精确注意力的算法至少需要 Ω(Nd) 次 HBM 访问。",
+        "a": "反证法利用了一个简洁的观察：当 M 足够大（M=Θ(Nd)）时，FlashAttention 的复杂度简化为 Θ(Nd)——刚好等于读写输入输出的最小量。如果有更好的算法，在这个特殊的 M 值下会得到 o(Nd)，违反了物理下界。"
+      },
+      {
+        "q": "Θ(N²d²/M) 在 M 增大时会怎样变化？有没有临界点？",
+        "en": "For typical values of d (64-128) and M (around 100KB), d² is many times smaller than M, and thus FlashAttention requires many times fewer HBM accesses than standard implementation.",
+        "zh": "对于 d（64-128）和 M（约100KB）的典型值，d² 远小于 M，因此 FlashAttention 所需的 HBM 访问次数远少于标准实现。",
+        "a": "当 M 从 d 增长到 Nd 时，IO 从 Θ(N²d) 线性下降到 Θ(Nd)。临界点在 M = Nd（整个 K/V 装入 SRAM），此时 IO = Nd = 标准实现的下界。但实际中 M << Nd（20MB << 64×1024×2=128KB·1024=128MB），所以 FlashAttention 的加速是实质性的。"
+      },
+      {
+        "q": "如果 d 增大到接近 M，FlashAttention 的优势会消失吗？",
+        "en": "Standard attention (Algorithm 0) requires Θ(Nd + N²) HBM accesses, while FlashAttention (Algorithm 1) requires Θ(N²d²M⁻¹) HBM accesses.",
+        "zh": "标准注意力（Algorithm 0）需要 Θ(Nd + N²) 次 HBM 访问，而 FlashAttention（Algorithm 1）需要 Θ(N²d²M⁻¹) 次 HBM 访问。",
+        "a": "是的。加速比 ≈ M/d²，当 d² 接近 M 时加速比趋近1。但实际中 d 通常是 64 或 128（multi-head attention 切分后），而 M 是 100KB 级别，d² = 8-32KB，所以 M/d² 在 3-12× 范围内，优势显著。"
+      }
+    ],
+    "paperRef": "论文第6页 Theorem 2 + Proposition 3"
+  },
+  {
+    "id": "recomputation",
+    "label": "反向重计算",
+    "emoji": "🔄",
+    "color": "#06b6d4",
+    "x": 85,
+    "y": 52,
+    "section": "第3.1节：Recomputation",
+    "pages": [
+      5
+    ],
+    "scrollTo": 5,
+    "highlights": [
+      {
+        "page": 5,
+        "top": 40,
+        "height": 35
+      }
+    ],
+    "keyQuestion": "训练时反向传播需要 S 和 P 矩阵——不存储它们怎么办？",
+    "content": [
+      {
+        "type": "h3",
+        "text": "问题：反向传播的内存需求"
+      },
+      {
+        "type": "p",
+        "text": "训练时的反向传播需要 S = QK<sup>T</sup> 和 P = softmax(S) 来计算 Q、K、V 的梯度。标准实现在前向传播中保存这两个 N×N 矩阵，内存占用为 O(N²)。对于长序列（N=16K），仅一个注意力层的中间变量就需要 16K×16K×4 bytes = 1GB。"
+      },
+      {
+        "type": "h3",
+        "text": "FlashAttention 的解决方案：不存，而是重算"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention 的前向传播只保存输出 O 和两个辅助向量 m（行最大值）和 ℓ（softmax 分母），总内存 O(N)。在反向传播时，从 HBM 加载 Q、K、V 的块到 SRAM，<strong>重新计算</strong> S 和 P 的对应块，然后用它们计算梯度。"
+      },
+      {
+        "type": "h3",
+        "text": "这不就是 Gradient Checkpointing 吗？"
+      },
+      {
+        "type": "p",
+        "text": "表面上看，这是<strong>选择性梯度检查点（selective gradient checkpointing）</strong>[10, 34] 的一种形式——用额外的计算换取更少的内存。但传统的 gradient checkpointing 总是「用时间换空间」。FlashAttention 的反向重计算却<strong>同时加速了反向传播</strong>！"
+      },
+      {
+        "type": "h3",
+        "text": "为什么重算反而更快？"
+      },
+      {
+        "type": "p",
+        "text": "因为标准反向传播需要从 HBM 读取 N×N 的 S 和 P 矩阵，IO 量为 O(N²)。FlashAttention 的重算在 SRAM 中完成，避免了这些 HBM 读取。<strong>多出的 FLOPs（重算 S 和 P）被 SRAM 的高带宽轻松吸收，而省下的 HBM IO 才是真正的时间节省</strong>。反向传播同样只需 Θ(N²d²/M) 次 HBM 访问。"
+      },
+      {
+        "type": "h3",
+        "text": "保存什么、丢弃什么"
+      },
+      {
+        "type": "p",
+        "text": "前向传播需要保存到 HBM 的信息：<strong>O ∈ ℝ<sup>N×d</sup></strong>（输出）、<strong>m ∈ ℝ<sup>N</sup></strong>（行最大值）、<strong>ℓ ∈ ℝ<sup>N</sup></strong>（softmax 分母）。总内存 O(Nd)。丢弃的信息：S ∈ ℝ<sup>N×N</sup>、P ∈ ℝ<sup>N×N</sup>。内存从 O(Nd + N²) 降到 O(Nd)——线性 vs 二次。"
+      }
+    ],
+    "thinkAbout": [
+      {
+        "q": "重计算引入了多少额外的 FLOPs？这个代价大吗？",
+        "en": "While gradient checkpointing has been suggested to reduce the maximum amount of memory required, all implementations (that we know of) have to trade speed for memory. In contrast, even with more FLOPs, our recomputation speeds up the backward pass due to reduced HBM accesses.",
+        "zh": "虽然梯度检查点被建议用于减少所需的最大内存量，但据我们所知，所有实现都需要以速度换内存。相比之下，即使增加了 FLOPs，我们的重计算仍由于减少了 HBM 访问而加速了反向传播。",
+        "a": "重算 S=QKᵀ 和 P=softmax(S) 的 FLOPs 与前向传播相同，即反向传播的总 FLOPs 大约翻倍。但 IO 从 O(Nd + N²) 降到 O(N²d²/M)——对于 N=1024, d=64, M=100KB，这是 ~10× 的 IO 减少。翻倍的计算 vs 10× 的 IO 节省，净效果是大幅加速。"
+      },
+      {
+        "q": "如果 GPU 的 HBM 容量无限大，重计算还有意义吗？",
+        "en": "One of our goals is to not store O(N²) intermediate values for the backward pass.",
+        "zh": "我们的目标之一是不在反向传播中存储 O(N²) 的中间值。",
+        "a": "即使 HBM 无限大，重计算仍然有意义。因为瓶颈不是内存容量而是内存带宽——即使数据都在 HBM 中，读取 N² 个元素的时间也比在 SRAM 中重算它们更长。重计算的核心价值是减少 HBM 读写次数，不仅仅是省内存。"
+      },
+      {
+        "q": "Dropout 的随机性如何在重计算中保持一致？",
+        "en": "Initialize the pseudo-random number generator state R and save to HBM.",
+        "zh": "初始化伪随机数生成器状态 R 并保存到 HBM。",
+        "a": "FlashAttention 在前向传播开始时保存随机数生成器的状态 R。反向传播时恢复到同一个状态 R，这样重新生成的 dropout mask 与前向传播完全一致。这是一个精巧的实现细节——只需保存一个种子（几个字节），就能重现整个 N×N 的 dropout mask。"
+      }
+    ],
+    "paperRef": "论文第5页 Recomputation + 附录 B"
+  },
+  {
+    "id": "block_sparse",
+    "label": "块稀疏扩展",
+    "emoji": "🧩",
+    "color": "#ec4899",
+    "x": 30,
+    "y": 74,
+    "section": "第3.3节：Block-Sparse FlashAttention",
+    "pages": [
+      7
+    ],
+    "scrollTo": 7,
+    "highlights": [
+      {
+        "page": 6,
+        "top": 75,
+        "height": 25
+      },
+      {
+        "page": 7,
+        "top": 0,
+        "height": 45
+      }
+    ],
+    "keyQuestion": "如何在 FlashAttention 之上进一步加速超长序列？",
+    "content": [
+      {
+        "type": "h3",
+        "text": "动机：当 N 极大时"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention 的 IO 复杂度 Θ(N²d²/M) 仍然是 N 的二次方。当 N 增长到 16K、64K 甚至更长时，即使有 IO 优化，二次增长仍然成为瓶颈。Block-Sparse FlashAttention 通过<strong>只计算注意力矩阵中非零的块</strong>来进一步降低复杂度。"
+      },
+      {
+        "type": "h3",
+        "text": "实现原理"
+      },
+      {
+        "type": "p",
+        "text": "给定一个块稀疏掩码 M ∈ {0,1}<sup>(N/B<sub>r</sub>)×(N/B<sub>c</sub>)</sup>，标记哪些块需要计算。Algorithm 5 与 Algorithm 1 几乎相同，唯一区别是在内层循环中<strong>跳过 M<sub>ij</sub>=0 的块</strong>。这种修改非常自然，因为 FlashAttention 本身就是逐块计算的。"
+      },
+      {
+        "type": "h3",
+        "text": "IO 复杂度"
+      },
+      {
+        "type": "p",
+        "text": "<strong>Proposition 4</strong>：Block-Sparse FlashAttention 的 HBM 访问量为 Θ(Nd + N²d²s/M)，其中 s 是非零块的比例。稀疏度直接作用于二次项，带来线性比例的加速。"
+      },
+      {
+        "type": "h3",
+        "text": "稀疏模式的选择"
+      },
+      {
+        "type": "p",
+        "text": "论文使用了 <strong>butterfly sparsity pattern</strong>（蝶形稀疏模式）[17]，这是作者之前的工作。对于长序列，s 通常设为 N<sup>-1/2</sup> 或 N<sup>-1</sup>log N，使 IO 复杂度降为 Θ(N√N) 或 Θ(N log N)——从二次降到了亚二次。"
+      },
+      {
+        "type": "h3",
+        "text": "实验验证"
+      },
+      {
+        "type": "p",
+        "text": "Figure 2（右图）验证了稀疏度与运行时间的线性关系。在 LRA benchmark 上，Block-Sparse FlashAttention 实现了 2.8× 加速（vs 标准注意力），性能与全注意力持平。更重要的是，它使 Transformer <strong>首次</strong>在 Path-256 任务上（序列长度 64K）达到了优于随机的表现（63.1%）——此前没有任何模型做到。"
+      }
+    ],
+    "thinkAbout": [
+      {
+        "q": "块稀疏模式是如何选择的？为什么用 butterfly pattern？",
+        "en": "For downstream experiments, we use the fixed butterfly sparsity pattern, which has been shown to be able to approximate arbitrary sparsity.",
+        "zh": "在下游实验中，我们使用固定的蝶形稀疏模式，该模式已被证明能够近似任意稀疏性。",
+        "a": "Butterfly pattern 来自快速傅里叶变换（FFT）的蝶形结构，兼具规则性（便于 GPU 实现）和表达力（可近似任意稀疏模式）。它的连接模式确保任意两个位置之间的路径长度为 O(log N)，保持了长距离依赖的学习能力。"
+      },
+      {
+        "q": "Block-Sparse 是精确的还是近似的？",
+        "en": "We also extend FlashAttention to block-sparse attention, yielding an approximate attention algorithm that is faster than any existing approximate attention method.",
+        "zh": "我们还将 FlashAttention 扩展到块稀疏注意力，产生了一种比所有现有近似注意力方法都更快的近似注意力算法。",
+        "a": "Block-Sparse FlashAttention 是近似的——被掩码设为0的块中的注意力权重被丢弃了。但 FlashAttention 本身是精确的。两者可以按需选择：短中序列用精确版，超长序列用稀疏版。稀疏版的精度损失取决于掩码选择的质量。"
+      },
+      {
+        "q": "s = N^(-1/2) 时，IO 复杂度变成什么？",
+        "en": "For large sequence lengths N, s is often set to N^(-1/2) or N^(-1) log N, resulting in Θ(N√N) or Θ(N log N) IO complexity.",
+        "zh": "对于较大的序列长度 N，s 通常设为 N^(-1/2) 或 N^(-1) log N，使得 IO 复杂度分别为 Θ(N√N) 或 Θ(N log N)。",
+        "a": "s = N^(-1/2) 时，IO = Θ(N²d²·N^(-1/2)/M) = Θ(N^(3/2)·d²/M)。对于 N=64K：标准注意力 ∝ N² = 4×10⁹，FlashAttention ∝ N²/12 = 3.4×10⁸，Block-Sparse ∝ N^(3/2)/12 = 2.1×10⁶。从十亿级降到百万级——三个数量级的差距。"
+      }
+    ],
+    "paperRef": "论文第6-7页 Section 3.3 + Proposition 4"
+  },
+  {
+    "id": "experiments",
+    "label": "实验结果",
+    "emoji": "📊",
+    "color": "#6366f1",
+    "x": 70,
+    "y": 74,
+    "section": "第4节：Experiments",
+    "pages": [
+      7,
+      8,
+      9
+    ],
+    "scrollTo": 8,
+    "highlights": [
+      {
+        "page": 7,
+        "top": 40,
+        "height": 60
+      },
+      {
+        "page": 8,
+        "top": 0,
+        "height": 100
+      },
+      {
+        "page": 9,
+        "top": 0,
+        "height": 100
+      }
+    ],
+    "keyQuestion": "FlashAttention 在真实任务中的加速效果和质量提升如何？",
+    "content": [
+      {
+        "type": "h3",
+        "text": "训练速度（Table 2）"
+      },
+      {
+        "type": "p",
+        "text": "在 8×A100 GPU 上的 GPT-2 训练对比："
+      },
+      {
+        "type": "bullet",
+        "text": "<strong>GPT-2 small</strong>：HuggingFace 9.5天 → Megatron 4.7天（2.0×）→ FlashAttention <strong>2.7天（3.5×）</strong>"
+      },
+      {
+        "type": "bullet",
+        "text": "<strong>GPT-2 medium</strong>：HuggingFace 21.0天 → Megatron 11.5天（1.8×）→ FlashAttention <strong>6.9天（3.0×）</strong>"
+      },
+      {
+        "type": "p",
+        "text": "三种实现达到了相同的困惑度（PPL 18.2/14.3），确认 FlashAttention 是精确的——不改变模型定义，只改变计算方式。"
+      },
+      {
+        "type": "h3",
+        "text": "BERT 训练（超越 MLPerf 记录）"
+      },
+      {
+        "type": "p",
+        "text": "BERT-large（序列长度 512）训练比 MLPerf 1.1 的速度记录快 <strong>15%</strong>。这是在一个高度优化的工业级基准上取得的，说明 FlashAttention 的加速不是与「未优化基线」比较。"
+      },
+      {
+        "type": "h3",
+        "text": "长序列质量提升"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention 使 Transformer 能够处理更长的上下文，带来了显著的质量提升："
+      },
+      {
+        "type": "bullet",
+        "text": "<strong>GPT-2 上下文 4K</strong>：困惑度比 1K 上下文提升 <strong>0.7</strong>（且训练速度仍快于 Megatron 训练 1K 上下文的 GPT-2）"
+      },
+      {
+        "type": "bullet",
+        "text": "<strong>长文档分类</strong>（Table 5）：MIMIC-III 从 52.8（512长度）提升到 57.1（16K），ECtHR 从 72.2 提升到 80.7（8K）"
+      },
+      {
+        "type": "h3",
+        "text": "突破性成果：Path-X 和 Path-256"
+      },
+      {
+        "type": "p",
+        "text": "Path-X（序列长度 16K）和 Path-256（序列长度 64K）是 Long-Range Arena 中最困难的任务——此前<strong>没有任何 Transformer 模型</strong>（包括所有近似注意力方法）能达到优于随机的表现。FlashAttention 首次在 Path-X 上达到 <strong>61.4%</strong>，Block-Sparse 在 Path-256 上达到 <strong>63.1%</strong>。这纯粹是因为能处理更长序列，而非模型架构改变。"
+      },
+      {
+        "type": "h3",
+        "text": "运行时与内存基准（Figure 3）"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention 在序列长度 128-2K 上比标准实现快 <strong>最高 3×</strong>，内存效率提升 <strong>最高 20×</strong>。在 64K 长度下，除 Linformer 外所有方法都在 A100 上 OOM，而 FlashAttention 仍然正常运行且比 Linformer 高效 2×。"
+      }
+    ],
+    "thinkAbout": [
+      {
+        "q": "为什么 FlashAttention 在短序列（128-512）上也比近似方法快？",
+        "en": "FlashAttention still runs faster than approximate and sparse attention for short sequences due to fewer memory accesses.",
+        "zh": "由于更少的内存访问，FlashAttention 在短序列上仍然比近似和稀疏注意力运行更快。",
+        "a": "近似方法虽然 FLOPs 是 O(N)，但它们引入了额外的操作（如随机投影、排序等），每个操作都是独立 kernel，需要额外的 HBM 读写。在短序列上 N² 本身不大，FlashAttention 的 kernel fusion 带来的 IO 节省反而超过了近似方法的 FLOPs 优势。"
+      },
+      {
+        "q": "Path-X 和 Path-256 到底在测什么？为什么之前所有模型都失败了？",
+        "en": "FlashAttention enables the first Transformer that can achieve better-than-chance performance on the Path-X challenge, solely from using a longer sequence length (16K).",
+        "zh": "FlashAttention 使得 Transformer 首次在 Path-X 挑战上达到优于随机的表现，仅仅通过使用更长的序列长度（16K）实现。",
+        "a": "Path-X 要求模型在一张 128×128 的图像中判断两个标记点之间是否有路径连接。将图像展平为序列后长度为 16384。如果模型无法有效处理这么长的序列，就无法捕捉到连接路径的信息。之前的模型要么 OOM，要么注意力近似丢失了关键的长距离信息。FlashAttention 不改变模型，只是让它真正能「看到」16K 个 token。"
+      },
+      {
+        "q": "Table 5 中为什么 MIMIC-III 在 1K 长度反而比 512 差？",
+        "en": "The discrepancies may be due to subtle distribution shifts: MIMIC-III contains specialized medical text and thus may be more susceptible to a distribution shift in the document length.",
+        "zh": "这些差异可能是由于微妙的分布偏移：MIMIC-III 包含专业医学文本，因此可能更容易受到文档长度分布偏移的影响。",
+        "a": "RoBERTa 预训练时的最大长度是 512。当重复位置嵌入以支持更长序列时，模型需要适应新的长度分布。MIMIC-III 是医学文本（分布与预训练语料差异大），在 1K 长度时模型还没适应过来。但继续增长到 4K-16K 后，长上下文的优势最终超过了分布偏移的劣势。"
+      }
+    ],
+    "paperRef": "论文第7-10页 Section 4"
+  },
+  {
+    "id": "implications",
+    "label": "影响与局限",
+    "emoji": "🔮",
+    "color": "#f97316",
+    "x": 50,
+    "y": 95,
+    "section": "第5节：Limitations and Future Directions",
+    "pages": [
+      10
+    ],
+    "scrollTo": 10,
+    "highlights": [
+      {
+        "page": 10,
+        "top": 0,
+        "height": 75
+      }
+    ],
+    "keyQuestion": "FlashAttention 的局限在哪里？它对后续研究产生了什么影响？",
+    "content": [
+      {
+        "type": "h3",
+        "text": "局限一：需要手写 CUDA kernel"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention 的实现需要用 CUDA 编写高度优化的 kernel——比 PyTorch 低得多的抽象层级，需要大量工程努力。每种新的注意力变体（如带旋转位置编码、带 ALiBi 的注意力）都需要编写新的 kernel。论文指出<strong>编译器辅助</strong>是未来方向：如果深度学习编译器（如 Triton）能自动将高层描述编译为 IO 感知的 kernel，将极大降低门槛。"
+      },
+      {
+        "type": "h3",
+        "text": "局限二：IO 感知不仅限于注意力"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention 只优化了注意力模块，但 Transformer 中还有很多 memory-bound 操作（如 LayerNorm、GeLU、残差连接等）。论文呼吁将 IO 感知原则推广到整个模型——这后来催生了大量「fused kernel」的工作。"
+      },
+      {
+        "type": "h3",
+        "text": "后续影响：FlashAttention-2 和 FlashAttention-3"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention-2（2023）通过改进并行策略和工作分配，进一步将速度提升到接近硬件理论峰值（A100 上达到 72% 的理论 FLOPs 利用率）。FlashAttention-3（2024）针对 Hopper 架构（H100 GPU）做了硬件特化优化，利用了 TMA（Tensor Memory Accelerator）和异步执行。"
+      },
+      {
+        "type": "h3",
+        "text": "行业影响"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention 已成为现代大模型训练和推理的<strong>标准基础设施</strong>。它被集成到 PyTorch 2.0（torch.nn.functional.scaled_dot_product_attention）、HuggingFace Transformers、vLLM、TensorRT-LLM 等主流框架中。几乎所有 2023 年后发布的大模型（GPT-4、LLaMA 2/3、Mistral、Gemma 等）都使用了 FlashAttention 或其变体。"
+      },
+      {
+        "type": "h3",
+        "text": "更深层的启示"
+      },
+      {
+        "type": "p",
+        "text": "FlashAttention 最深远的影响不是某个具体的加速比，而是<strong>改变了深度学习社区看待优化的方式</strong>：从「减少 FLOPs」转向「减少 IO」。它重新连接了深度学习与系统/体系结构领域的经典智慧——内存层级、数据局部性、Roofline 模型——这些原则在 HPC 领域已经是常识，但在 ML 社区长期被忽视。"
+      }
+    ],
+    "thinkAbout": [
+      {
+        "q": "为什么不用 Triton 等编译器自动生成 IO 感知的 kernel？",
+        "en": "Our current approach to building IO-aware implementations of attention requires writing a new CUDA kernel for each new attention implementation. This requires writing the attention algorithm in a considerably lower-level language than PyTorch.",
+        "zh": "我们当前构建 IO 感知注意力实现的方法需要为每种新的注意力实现编写新的 CUDA kernel。这要求用比 PyTorch 低得多的语言编写注意力算法。",
+        "a": "事实上 FlashAttention-2 的一部分确实用 Triton 重写了。但编译器难以自动做到的是「在线 softmax + 分块 + 重计算」这种跨越多个操作的全局优化。编译器擅长局部 kernel fusion，但 FlashAttention 的创新在于算法层面的全局重组。未来的方向是让编译器理解更高层的算法模式。"
+      },
+      {
+        "q": "FlashAttention 的原则能应用到注意力以外的模块吗？",
+        "en": "We believe that our IO-aware approach can be used to speed up each of these modules.",
+        "zh": "我们相信，我们的 IO 感知方法可以用于加速这些模块中的每一个。",
+        "a": "完全可以。核心原则是「分块 + SRAM 计算 + 减少 HBM 读写」。后续工作已将类似思想应用到 LayerNorm（FusedLayerNorm）、GeLU、残差连接（Flash-Decoding for inference）、甚至 MLP 层。PyTorch 2.0 的 torch.compile 也在尝试自动发现和融合这些机会。"
+      },
+      {
+        "q": "FlashAttention 改变了哪些关于模型设计的「常识」？",
+        "en": "FlashAttention and block-sparse FlashAttention enable longer context in Transformers, yielding higher quality models and entirely new capabilities.",
+        "zh": "FlashAttention 和块稀疏 FlashAttention 使 Transformer 支持更长的上下文，产生了更高质量的模型和全新的能力。",
+        "a": "至少改变了三个「常识」：(1) O(N²) 不再是不可逾越的障碍——通过 IO 优化可以在实践中处理很长序列。(2) 近似注意力不是唯一出路——精确计算+系统优化可能更好。(3) 模型质量可以通过系统优化提升——不改变模型架构，只是让它处理更长上下文就能获得实质性的质量提升。"
+      }
+    ],
+    "paperRef": "论文第10页 Section 5"
+  }
+];
+const connections = [
+  {
+    "from": "problem",
+    "to": "standard_attn"
+  },
+  {
+    "from": "problem",
+    "to": "online_softmax"
+  },
+  {
+    "from": "standard_attn",
+    "to": "algorithm"
+  },
+  {
+    "from": "online_softmax",
+    "to": "algorithm"
+  },
+  {
+    "from": "algorithm",
+    "to": "io_complexity"
+  },
+  {
+    "from": "algorithm",
+    "to": "recomputation"
+  },
+  {
+    "from": "algorithm",
+    "to": "block_sparse"
+  },
+  {
+    "from": "algorithm",
+    "to": "experiments"
+  },
+  {
+    "from": "block_sparse",
+    "to": "experiments"
+  },
+  {
+    "from": "experiments",
+    "to": "implications"
+  },
+  {
+    "from": "io_complexity",
+    "to": "implications"
+  }
+];
+let selectedId = null;
+const expandedQs = new Set();
+let pagesLoaded = false;
+
+document.getElementById('titleEl').textContent = PAPER_TITLE;
+document.title = PAPER_TITLE + ' — 交互式阅读指南';
+
+function getNode(id){return nodes.find(n=>n.id===id);}
+
+function loadPages(){
+  if(pagesLoaded)return;
+  pagesLoaded=true;
+  const pane=document.getElementById('paperPane');
+  pane.innerHTML='';
+  for(let i=1;i<=TOTAL_PAGES;i++){
+    const w=document.createElement('div');
+    w.className='page-wrapper';
+    w.id='page-'+i;
+    w.innerHTML='<div class="page-label">Page '+i+'</div><img src="'+PAGES_DIR+'/page_'+i+'.png" alt="Page '+i+'" loading="lazy">';
+    pane.appendChild(w);
+  }
+}
+
+function highlightPages(node){
+  document.querySelectorAll('.highlight-overlay').forEach(e=>e.remove());
+  if(!node||!node.highlights)return;
+  node.highlights.forEach(h=>{
+    const pw=document.getElementById('page-'+h.page);
+    if(!pw)return;
+    const ov=document.createElement('div');
+    ov.className='highlight-overlay';
+    ov.style.top=h.top+'%';
+    ov.style.height=h.height+'%';
+    ov.style.borderColor=node.color;
+    ov.style.background=node.color+'15';
+    ov.style.boxShadow='0 0 20px '+node.color+'30';
+    pw.appendChild(ov);
+  });
+  setTimeout(()=>{
+    const target=document.getElementById('page-'+node.scrollTo);
+    if(target){target.scrollIntoView({behavior:'smooth',block:'start'});}
+  },100);
+}
+
+function renderMap(){
+  const svg=document.getElementById('mapSvg');
+  const box=document.getElementById('mapBox');
+  let h='';
+  connections.forEach(c=>{
+    const f=getNode(c.from),t=getNode(c.to);
+    if(!f||!t)return;
+    h+='<line x1="'+f.x+'%" y1="'+(f.y+3)+'%" x2="'+t.x+'%" y2="'+t.y+'%" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="5 3" opacity="0.5"/>';
+  });
+  svg.innerHTML=h;
+  box.querySelectorAll('.node-btn').forEach(e=>e.remove());
+  nodes.forEach(n=>{
+    const btn=document.createElement('button');
+    btn.className='node-btn';
+    btn.style.left=n.x+'%';btn.style.top=n.y+'%';
+    btn.onclick=()=>selectNode(n.id);
+    const a=selectedId===n.id;
+    const bg=a?n.color:'white',fg=a?'white':'#1e293b';
+    const sh=a?'0 4px 16px '+n.color+'44':'0 1px 4px rgba(0,0,0,0.08)';
+    const sc=a?'scale(1.08)':'scale(1)';
+    btn.innerHTML='<div class="node-chip" style="background:'+bg+';border-color:'+n.color+';color:'+fg+';box-shadow:'+sh+';transform:'+sc+';"><span class="emoji">'+n.emoji+'</span><span>'+n.label+'</span></div>';
+    box.appendChild(btn);
+  });
+}
+
+function toggleQ(key){
+  if(expandedQs.has(key))expandedQs.delete(key);else expandedQs.add(key);
+  renderDetail();
+}
+
+function renderDetail(){
+  const ct=document.getElementById('detailContainer');
+  const hint=document.getElementById('emptyHint');
+  if(!selectedId){ct.innerHTML='';hint.style.display='block';return;}
+  hint.style.display='none';
+  const n=getNode(selectedId);
+  let ch='';
+  n.content.forEach(i=>{
+    if(i.type==='h3')ch+='<h3>'+i.text+'</h3>';
+    else if(i.type==='p')ch+='<p>'+i.text+'</p>';
+    else if(i.type==='bullet')ch+='<div class="bullet"><span class="dot">•</span><span>'+i.text+'</span></div>';
+    else if(i.type==='step')ch+='<p class="step-label">'+i.text+'</p>';
+  });
+  let th='';
+  n.thinkAbout.forEach((item,idx)=>{
+    const key=n.id+'-'+idx;
+    const open=expandedQs.has(key);
+    th+='<div>';
+    th+='<div class="qa-question" onclick="toggleQ(\''+key+'\')">';
+    th+='<span class="arrow">'+(open?'▼':'▶')+'</span>';
+    th+='<span class="qtext">'+item.q+'</span></div>';
+    if(open){
+      th+='<div class="qa-detail">';
+      th+='<div class="qa-block" style="background:#fef3c7;border-color:#f59e0b;"><div class="block-label" style="color:#92400e;">ORIGINAL TEXT</div><p class="block-text" style="color:#78350f;font-style:italic;">'+item.en+'</p></div>';
+      th+='<div class="qa-block" style="background:#ecfdf5;border-color:#10b981;"><div class="block-label" style="color:#065f46;">中文学术翻译</div><p class="block-text" style="color:#064e3b;">'+item.zh+'</p></div>';
+      th+='<div class="qa-block" style="background:#eff6ff;border-color:#3b82f6;"><div class="block-label" style="color:#1e40af;">解答</div><div class="block-text" style="color:#1e3a5f;">'+item.a+'</div></div>';
+      th+='</div>';
+    }
+    th+='</div>';
+  });
+  ct.innerHTML=
+    '<div class="detail-panel" style="border-color:'+n.color+'40;">'+
+    '<div class="detail-header" style="background:'+n.color+'10;">'+
+    '<div class="info"><h2 style="color:'+n.color+';">'+n.emoji+' '+n.label+'</h2><div class="section">'+n.section+'</div></div>'+
+    '<button class="close-btn" onclick="selectNode(null)">×</button></div>'+
+    '<div class="detail-body">'+
+    '<div class="key-question" style="background:'+n.color+'08;border:1px solid '+n.color+'20;"><div class="label" style="color:'+n.color+';">核心问题</div><div class="text">'+n.keyQuestion+'</div></div>'+
+    '<div class="content-area">'+ch+'</div>'+
+    '<div class="think-box"><div class="title">带着这些问题去读原文（点击展开）</div>'+th+'</div>'+
+    '<div class="paper-ref">'+n.paperRef+'</div></div></div>';
+}
+
+function selectNode(id){
+  selectedId=(selectedId===id)?null:id;
+  expandedQs.clear();
+  loadPages();
+  renderMap();
+  renderDetail();
+  highlightPages(selectedId?getNode(selectedId):null);
+  if(selectedId){
+    setTimeout(()=>{
+      const dc=document.getElementById('detailContainer');
+      if(dc&&dc.firstChild)dc.firstChild.scrollIntoView({behavior:'smooth',block:'start'});
+    },150);
+  }
+}
+
+// Draggable divider
+(function(){
+  const div=document.getElementById('divider');
+  const pp=document.getElementById('paperPane');
+  let dragging=false;
+  div.addEventListener('mousedown',e=>{dragging=true;e.preventDefault();});
+  document.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    const pct=Math.min(70,Math.max(25,e.clientX/window.innerWidth*100));
+    pp.style.width=pct+'%';
+  });
+  document.addEventListener('mouseup',()=>{dragging=false;});
+})();
+
+renderMap();
+renderDetail();
+</script>
+</body>
+</html>

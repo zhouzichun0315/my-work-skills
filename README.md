@@ -82,6 +82,17 @@ npx skills add zhouzichun0315/my-work-skills --all
 | Claude Code | `~/.claude/skills/` |
 | Cursor | `~/.cursor/skills/` |
 
+## 示例
+
+`examples/` 目录包含两篇经典论文的阅读指南成品，可直接下载体验：
+
+| 论文 | 目录 | 说明 |
+|------|------|------|
+| Attention Is All You Need | [`examples/attention-is-all-you-need/`](examples/attention-is-all-you-need/) | Transformer 原始论文（15页），9 个概念节点 |
+| FlashAttention | [`examples/flash-attention/`](examples/flash-attention/) | IO 感知的精确注意力算法（34页），9 个概念节点 |
+
+**使用方式**：下载整个子目录（`reading-guide.html` + `pages/` 文件夹），用浏览器打开 HTML 即可，完全离线可用。
+
 ## 仓库结构
 
 ```
@@ -97,10 +108,19 @@ skills/
 │       ├── data-schema.md              # JSON 数据结构规范
 │       └── content-quality.md          # 内容质量指南
 │
-└── project-skill-generator/        # 项目 Skill 生成器
-    ├── SKILL.md
-    └── references/
-        └── skill-template.md           # Skill 标准模板
+├── project-skill-generator/        # 项目 Skill 生成器
+│   ├── SKILL.md
+│   └── references/
+│       └── skill-template.md           # Skill 标准模板
+│
+examples/
+├── attention-is-all-you-need/      # Transformer 阅读指南示例
+│   ├── reading-guide.html
+│   └── pages/                          # 15 页 PNG
+│
+└── flash-attention/                # FlashAttention 阅读指南示例
+    ├── reading-guide.html
+    └── pages/                          # 34 页 PNG
 ```
 
 ## 许可证
